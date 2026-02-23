@@ -1,0 +1,25 @@
+[package]
+name = "nimbus-porter-cli"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Standalone MCP gateway CLI — serve MCP servers via HTTP or STDIO"
+repository = "https://github.com/Layer-Prime-Solutions/porter"
+
+[[bin]]
+name = "porter"
+path = "src/main.rs"
+
+[dependencies]
+nimbus-porter = { path = ".." }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
+anyhow = "1"
+axum = "0.7"
+rmcp = { version = "0.14", features = ["server", "transport-streamable-http-server"] }
+tower = "0.5"

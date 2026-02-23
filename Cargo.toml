@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["cli"]
+
+[package]
+name = "nimbus-porter"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Layer-Prime-Solutions/porter"
+description = "Standalone MCP server gateway — manages external MCP server connections with namespaced tools"
+
+[dependencies]
+rmcp = { version = "0.14", features = ["client", "server", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "client-side-sse", "transport-streamable-http-server"] }
+notify = "8"
+axum = "0.7"
+tower = "0.5"
+tokio = { version = "1.43", features = ["full"] }
+tokio-util = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+futures = "0.3"
+toml = "0.8"
+
+[features]
+integration-tests = []
+
+[dev-dependencies]
+tempfile = "3"
