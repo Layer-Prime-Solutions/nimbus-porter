@@ -316,6 +316,35 @@ Built-in profiles provide pre-configured read-only access for common CLI tools, 
 
 Profiles enforce read-only subcommands by default. Use `write_access` config to opt in to specific write operations.
 
+## Use-Case Recipes
+
+`porter.example.toml` includes ready-to-uncomment config blocks for connecting AI agents to popular project management and code review platforms via MCP servers. Each recipe documents every exposed tool by access tier so you can make informed decisions about what to allow.
+
+### Access Tiers
+
+| Tier | Default | Description | Examples |
+|------|---------|-------------|----------|
+| **Read** | Enabled | Passive observation — no side effects | search, list, get, view, diff |
+| **Feedback** | Enabled | Participate in workflows without destructive side effects | create issues, add comments, update labels/status |
+| **Destructive** | Blocked | Irreversible or high-impact actions | delete, merge, close, archive |
+| **Code Write** | Blocked | Significant mutations to source code | push files, create branches, fork repos |
+
+**Read** and **Feedback** tools are safe to expose to AI agents by default. **Destructive** and **Code Write** tools should be explicitly opted into after reviewing the implications.
+
+### Available Recipes
+
+| Platform | Package | Transport | Auth |
+|----------|---------|-----------|------|
+| GitHub | `@modelcontextprotocol/server-github` | STDIO | `GITHUB_TOKEN` |
+| GitLab | `@modelcontextprotocol/server-gitlab` | STDIO | `GITLAB_TOKEN` (+ optional `GITLAB_API_URL`) |
+| Linear | `mcp-remote` → `https://mcp.linear.app/sse` | STDIO (remote bridge) | OAuth (browser flow) |
+| Jira | `mcp-atlassian` (via `uvx`) | STDIO | `JIRA_URL` + `JIRA_USERNAME` + `JIRA_API_TOKEN` |
+| ClickUp | `clickup-mcp-server` | STDIO | `CLICKUP_API_KEY` + `CLICKUP_TEAM_ID` |
+
+To use a recipe: open `porter.example.toml`, find the platform block, uncomment it, set the required environment variables, and copy it into your `porter.toml`.
+
+> **Note**: These are third-party MCP servers maintained by their respective communities. Review each server's documentation and security posture before exposing it to AI agents in production environments.
+
 ## Safety
 
 - **Read-only by default**: CLI tools are read-only unless `write_access` is configured

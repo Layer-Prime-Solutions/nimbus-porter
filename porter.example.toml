@@ -105,3 +105,246 @@ env.GH_TOKEN = "$GH_TOKEN"
 # inject_flags = ["--format", "json"]
 # timeout_secs = 10
 # expand_subcommands = true
+
+
+# ─── Use-Case Recipes: Project Management & Code Review MCPs ──────────────────
+#
+# Pre-baked configs for connecting AI agents to project management and code
+# review platforms via MCP servers. Uncomment a block and set the required
+# environment variables to get started.
+#
+# ACCESS TIERS — Each recipe documents which tools fall into which tier so
+# you can make informed decisions about what to expose to AI agents:
+#
+#   READ        (always safe)       Search, list, get, view, diff — passive
+#                                   observation. No side effects.
+#
+#   FEEDBACK    (enabled by default) Create issues, add comments, update
+#                                   labels/status, create docs — how AI agents
+#                                   participate in workflows without destructive
+#                                   side effects.
+#
+#   DESTRUCTIVE (blocked by default) Delete, merge, close, archive —
+#                                   irreversible or high-impact actions best
+#                                   left to humans. Opt in explicitly.
+#
+#   CODE WRITE  (blocked by default) Push files, create branches, fork repos —
+#                                   significant mutations to source code.
+#                                   Opt in explicitly.
+#
+# Recipes below list every tool by tier. Uncomment the block, then remove
+# individual tool lines from `allow` if you want to restrict further.
+
+
+# ─── GitHub (via @modelcontextprotocol/server-github) ─────────────────────────
+#
+# Install: npm install -g @modelcontextprotocol/server-github
+# Auth:    export GITHUB_TOKEN=ghp_...  (needs repo scope; add project scope
+#          for Projects, admin:org for org operations)
+# Docs:    https://github.com/modelcontextprotocol/servers/tree/main/src/github
+#
+# READ tools:
+#   get_file_contents           — read file/directory contents
+#   search_repositories         — search repos by query
+#   search_code                 — search code across repos
+#   search_issues               — search issues and PRs
+#   search_users                — search GitHub users
+#   get_issue                   — get issue details
+#   get_pull_request            — get PR details
+#   get_pull_request_files      — list files changed in a PR
+#   get_pull_request_status     — get PR review/check status
+#   get_pull_request_comments   — get PR review comments
+#   get_pull_request_reviews    — get PR reviews
+#   list_issues                 — list issues in a repo
+#   list_commits                — list branch commits
+#   get_commit                  — get commit details
+#   list_branches               — list repo branches
+#
+# FEEDBACK tools:
+#   create_issue                — open a new issue
+#   add_issue_comment           — comment on an issue
+#   update_issue                — update issue title/body/state/labels
+#   create_pull_request_review  — submit a PR review
+#
+# DESTRUCTIVE tools (opt-in):
+#   merge_pull_request          — merge a PR (irreversible)
+#
+# CODE WRITE tools (opt-in):
+#   create_or_update_file       — create/update a file in a repo
+#   push_files                  — push multiple files in a commit
+#   create_repository           — create a new repo
+#   fork_repository             — fork a repo
+#   create_branch               — create a branch
+#   create_pull_request         — open a PR
+
+# [servers.github]
+# slug = "github"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env.GITHUB_PERSONAL_ACCESS_TOKEN = "$GITHUB_TOKEN"
+
+
+# ─── GitLab (via @modelcontextprotocol/server-gitlab) ─────────────────────────
+#
+# Install: npm install -g @modelcontextprotocol/server-gitlab
+# Auth:    export GITLAB_TOKEN=glpat-...  (needs api scope)
+#          Optionally: export GITLAB_API_URL=https://gitlab.example.com
+#          (defaults to https://gitlab.com)
+# Docs:    https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab
+#
+# READ tools:
+#   get_file_contents           — read file contents from a branch
+#   get_merge_request           — get MR details
+#   get_merge_request_diffs     — get MR file diffs
+#   list_merge_requests         — list MRs in a project
+#   search_repositories         — search GitLab projects
+#   list_issues                 — list project issues
+#   get_issue                   — get issue details
+#   list_issue_notes            — list comments on an issue
+#   list_merge_request_notes    — list comments on an MR
+#
+# FEEDBACK tools:
+#   create_issue                — open a new issue
+#   update_issue                — update issue details
+#   add_issue_note              — comment on an issue
+#   update_merge_request        — update MR title/description/labels
+#   add_merge_request_note      — comment on an MR
+#
+# DESTRUCTIVE tools (opt-in):
+#   accept_merge_request        — merge an MR (irreversible)
+#   delete_issue                — delete an issue
+#
+# CODE WRITE tools (opt-in):
+#   create_or_update_file       — create/update a file in a repo
+#   create_merge_request        — open an MR
+#   create_branch               — create a branch
+#   fork_project                — fork a project
+
+# [servers.gitlab]
+# slug = "gitlab"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-gitlab"]
+# env.GITLAB_PERSONAL_ACCESS_TOKEN = "$GITLAB_TOKEN"
+# env.GITLAB_API_URL = "$GITLAB_API_URL"
+
+
+# ─── Linear (via mcp-remote → https://mcp.linear.app/sse) ────────────────────
+#
+# Install: npm install -g mcp-remote
+# Auth:    OAuth — mcp-remote handles the browser-based auth flow on first
+#          connection. No token env var needed.
+# Docs:    https://linear.app/docs/mcp
+#
+# READ tools:
+#   list_issues                 — list issues with filters
+#   get_issue                   — get issue details
+#   search_issues               — full-text search across issues
+#   list_projects               — list projects
+#   get_project                 — get project details
+#   list_teams                  — list workspace teams
+#   get_user                    — get user details
+#   list_comments               — list issue comments
+#   list_cycles                 — list team cycles
+#   list_documents              — list documents
+#   get_document                — get document contents
+#
+# FEEDBACK tools:
+#   create_issue                — create a new issue
+#   update_issue                — update issue fields
+#   create_comment              — comment on an issue
+#   create_document             — create a document
+#   update_document             — update a document
+#   create_issue_label          — create a label
+#
+# DESTRUCTIVE tools (opt-in):
+#   delete_attachment           — delete an attachment
+#   (Note: Linear's MCP exposes limited destructive operations)
+
+# [servers.linear]
+# slug = "linear"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
+
+
+# ─── Jira (via mcp-atlassian) ────────────────────────────────────────────────
+#
+# Install: pip install mcp-atlassian  (or use uvx for isolated runs)
+# Auth:    export JIRA_URL=https://yoursite.atlassian.net
+#          export JIRA_USERNAME=you@example.com
+#          export JIRA_API_TOKEN=...  (generate at id.atlassian.com/manage-profile/security/api-tokens)
+# Docs:    https://github.com/sooperset/mcp-atlassian
+#
+# READ tools:
+#   jira_get_issue              — get issue details
+#   jira_search                 — JQL search
+#   jira_get_project_issues     — list issues in a project
+#   jira_list_projects          — list all projects
+#   jira_list_sprints           — list sprints for a board
+#   jira_get_sprint_issues      — get issues in a sprint
+#   jira_get_board_issues       — get issues for a board
+#   jira_get_issue_comments     — list issue comments
+#   jira_get_transitions        — list available transitions
+#   jira_get_worklog            — get issue worklogs
+#   jira_get_agile_board_config — get board configuration
+#   jira_get_field_options      — get custom field options
+#
+# FEEDBACK tools:
+#   jira_create_issue           — create a new issue
+#   jira_update_issue           — update issue fields
+#   jira_add_comment            — comment on an issue
+#   jira_transition_issue       — transition issue status
+#   jira_add_worklog            — add a worklog entry
+#   jira_link_to_epic           — link issue to an epic
+#   jira_batch_create_issues    — bulk create issues
+#
+# DESTRUCTIVE tools (opt-in):
+#   jira_delete_issue           — delete an issue (irreversible)
+
+# [servers.jira]
+# slug = "jira"
+# transport = "stdio"
+# command = "uvx"
+# args = ["mcp-atlassian", "--jira-url", "$JIRA_URL", "--jira-username", "$JIRA_USERNAME", "--jira-api-token", "$JIRA_API_TOKEN"]
+
+
+# ─── ClickUp (via clickup-mcp-server) ────────────────────────────────────────
+#
+# Install: npm install -g clickup-mcp-server
+# Auth:    export CLICKUP_API_KEY=pk_...  (generate in ClickUp Settings → Apps)
+#          export CLICKUP_TEAM_ID=...     (find in ClickUp URL: app.clickup.com/<team_id>/...)
+# Docs:    https://github.com/nazrulislambhat/clickup-mcp-server
+#
+# READ tools:
+#   get_workspaces              — list workspaces
+#   get_spaces                  — list spaces in workspace
+#   get_space                   — get space details
+#   get_folders                 — list folders in a space
+#   get_folder                  — get folder details
+#   get_lists                   — list lists in folder/space
+#   get_list                    — get list details
+#   get_tasks                   — list tasks with filters
+#   get_task                    — get task details
+#   get_task_comments           — list task comments
+#
+# FEEDBACK tools:
+#   create_task                 — create a new task
+#   update_task                 — update task fields
+#   create_task_comment         — comment on a task
+#   create_list                 — create a list
+#   create_folder               — create a folder
+#
+# DESTRUCTIVE tools (opt-in):
+#   delete_task                 — delete a task (irreversible)
+#   delete_list                 — delete a list (irreversible)
+#   delete_folder               — delete a folder (irreversible)
+
+# [servers.clickup]
+# slug = "clickup"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "clickup-mcp-server"]
+# env.CLICKUP_API_KEY = "$CLICKUP_API_KEY"
+# env.CLICKUP_TEAM_ID = "$CLICKUP_TEAM_ID"
