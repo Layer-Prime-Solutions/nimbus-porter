@@ -95,6 +95,16 @@ All tools from all configured servers and CLI tools are available at that single
 
 Porter config uses `porter.toml` (or a custom path via `--config`).
 
+### Listen
+
+Set default bind address and port for `porter serve`. CLI flags `--host` and `--port` override these when provided.
+
+```toml
+[listen]
+host = "127.0.0.1"    # Default: "127.0.0.1"
+port = 3000            # Default: 3000
+```
+
 ### MCP Servers
 
 ```toml
@@ -192,8 +202,8 @@ porter serve --config my-tools.toml --port 8080 --host 0.0.0.0
 
 Options:
 - `--config` / `-c`: Path to config file (default: `./porter.toml` or `~/.config/porter/porter.toml`)
-- `--port` / `-p`: HTTP port (default: `3000`)
-- `--host`: Bind address (default: `127.0.0.1`)
+- `--port` / `-p`: HTTP port (overrides `[listen].port` from config; default: `3000`)
+- `--host`: Bind address (overrides `[listen].host` from config; default: `127.0.0.1`)
 
 **Hot-reload**: Porter watches the config file for changes. When you edit `porter.toml`, Porter automatically reloads the tool surface and sends a `tools/list_changed` notification to all connected MCP clients — no restart required.
 

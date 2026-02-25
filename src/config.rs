@@ -29,9 +29,40 @@ pub fn resolve_env_vars(env: &HashMap<String, String>) -> HashMap<String, String
         .collect()
 }
 
+/// HTTP listen address defaults for `porter serve`.
+///
+/// Configured under `[listen]` in TOML. CLI flags `--host` and `--port`
+/// override these values when provided.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListenConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+impl Default for ListenConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
+    }
+}
+
+fn default_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_port() -> u16 {
+    3000
+}
+
 /// Top-level Porter configuration, parsed from TOML.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PorterConfig {
+    #[serde(default)]
+    pub listen: ListenConfig,
     #[serde(default)]
     pub servers: HashMap<String, ServerConfig>,
     #[serde(default)]
@@ -549,5 +580,37 @@ mod tests {
             "#,
         );
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_listen_config_defaults() {
+        let config: PorterConfig = toml::from_str("").expect("empty TOML");
+        assert_eq!(config.listen.host, "127.0.0.1");
+        assert_eq!(config.listen.port, 3000);
+    }
+
+    #[test]
+    fn test_listen_config_custom() {
+        let config = parse_toml(
+            r#"
+            [listen]
+            host = "0.0.0.0"
+            port = 8080
+            "#,
+        );
+        assert_eq!(config.listen.host, "0.0.0.0");
+        assert_eq!(config.listen.port, 8080);
+    }
+
+    #[test]
+    fn test_listen_config_partial_override() {
+        let config = parse_toml(
+            r#"
+            [listen]
+            port = 9090
+            "#,
+        );
+        assert_eq!(config.listen.host, "127.0.0.1");
+        assert_eq!(config.listen.port, 9090);
     }
 }

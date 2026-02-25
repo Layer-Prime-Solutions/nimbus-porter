@@ -131,6 +131,7 @@ mod tests {
         let config = PorterConfig {
             servers: HashMap::new(),
             cli: HashMap::new(),
+            ..Default::default()
         };
         let registry = PorterRegistry::from_config(config)
             .await

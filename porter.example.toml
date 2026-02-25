@@ -10,6 +10,16 @@
 # Porter watches porter.toml for changes and hot-reloads automatically.
 
 
+# ─── Listen ─────────────────────────────────────────────────────────────────
+#
+# Default bind address and port for `porter serve`. CLI flags --host and
+# --port override these values when provided.
+
+# [listen]
+# host = "127.0.0.1"    # Bind address (use "0.0.0.0" for all interfaces)
+# port = 3000            # HTTP port for `porter serve`
+
+
 # ─── MCP Servers ─────────────────────────────────────────────────────────────
 #
 # Wrap external MCP servers (STDIO or HTTP transport) behind Porter's

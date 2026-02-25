@@ -41,12 +41,12 @@ enum Commands {
         /// Path to porter.toml config file [default: ./porter.toml or ~/.config/porter/porter.toml]
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// HTTP port to listen on
-        #[arg(short, long, default_value = "3000")]
-        port: u16,
-        /// Bind address
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
+        /// HTTP port to listen on [default: 3000, or [listen].port from config]
+        #[arg(short, long)]
+        port: Option<u16>,
+        /// Bind address [default: 127.0.0.1, or [listen].host from config]
+        #[arg(long)]
+        host: Option<String>,
     },
     /// Bridge all configured tools over STDIO (for Claude Desktop, etc.)
     Stdio {
@@ -78,9 +78,13 @@ async fn main() -> Result<()> {
     });
 
     match cli.command {
-        Commands::Serve { config, port, host } => {
-            let config = resolve_config(config)?;
-            run_serve(config, host, port, cancel).await?;
+        Commands::Serve {
+            config,
+            port,
+            host,
+        } => {
+            let config_path = resolve_config(config)?;
+            run_serve(config_path, host, port, cancel).await?;
         }
         Commands::Stdio { config } => {
             let config = resolve_config(config)?;
@@ -97,11 +101,15 @@ async fn main() -> Result<()> {
 /// spawns a hot-reload background task, then serves via StreamableHttpService + axum.
 async fn run_serve(
     config_path: PathBuf,
-    host: String,
-    port: u16,
+    host_override: Option<String>,
+    port_override: Option<u16>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let config = load_config(&config_path).await?;
+
+    let host = host_override.unwrap_or(config.listen.host.clone());
+    let port = port_override.unwrap_or(config.listen.port);
+
     let registry = PorterRegistry::from_config(config)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to build Porter registry: {}", e))?;

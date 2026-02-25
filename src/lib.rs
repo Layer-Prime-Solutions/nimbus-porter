@@ -18,7 +18,8 @@ pub use cli::help_parser::{parse_help_output, ArgumentSchema};
 pub use cli::read_only_heuristic::is_likely_read_only;
 pub use cli::subcommand_parser::parse_subcommands;
 pub use config::{
-    parse_env_ref, resolve_env_vars, CliServerConfig, PorterConfig, ServerConfig, TransportKind,
+    parse_env_ref, resolve_env_vars, CliServerConfig, ListenConfig, PorterConfig, ServerConfig,
+    TransportKind,
 };
 pub use error::{PorterError, Result};
 pub use registry::PorterRegistry;

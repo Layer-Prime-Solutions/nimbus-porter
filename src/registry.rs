@@ -241,6 +241,7 @@ mod tests {
         PorterConfig {
             servers: map,
             cli: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -349,6 +350,7 @@ mod tests {
         let config = PorterConfig {
             servers: map,
             cli: HashMap::new(),
+            ..Default::default()
         };
         let result = PorterRegistry::from_config(config).await;
         assert!(
@@ -546,6 +548,7 @@ mod tests {
         let config = PorterConfig {
             servers: HashMap::new(),
             cli: cli_map,
+            ..Default::default()
         };
 
         let registry = PorterRegistry::from_config(config).await.unwrap();
