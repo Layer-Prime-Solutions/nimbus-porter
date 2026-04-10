@@ -154,12 +154,7 @@ async fn run_serve(
 /// Loads porter.toml, builds PorterRegistry, wraps in PorterMcpServer,
 /// then serves over stdin/stdout using rmcp's serve_with_ct.
 async fn run_stdio(config_path: PathBuf, cancel: CancellationToken) -> Result<()> {
-    let config = load_config(&config_path).await?;
-    let registry = PorterRegistry::from_config(config)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to build Porter registry: {}", e))?;
-
-    let server = PorterMcpServer::new(registry);
+    let (server, _config) = init_server(&config_path, &cancel).await?;
 
     // Use rmcp's STDIO transport (same pattern as Navigator's run_navigator_stdio)
     let transport = (tokio::io::stdin(), tokio::io::stdout());
