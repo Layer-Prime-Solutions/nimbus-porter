@@ -101,29 +101,10 @@ async fn run_serve(
     port_override: Option<u16>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let config = load_config(&config_path).await?;
+    let (server, config) = init_server(&config_path, &cancel).await?;
 
     let host = host_override.unwrap_or(config.listen.host.clone());
     let port = port_override.unwrap_or(config.listen.port);
-
-    let registry = PorterRegistry::from_config(config)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to build Porter registry: {}", e))?;
-
-    let server = PorterMcpServer::new(registry);
-
-    // Get handles for the hot-reload task
-    let registry_handle = server.registry_handle();
-    let peers_handle = server.peers_handle();
-
-    // Spawn hot-reload background task — watches config file, swaps registry on change,
-    // notifies connected MCP client peers of tools-list-changed
-    tokio::spawn(run_hot_reload(
-        config_path.clone(),
-        registry_handle,
-        peers_handle,
-        cancel.child_token(),
-    ));
 
     // Set up Streamable HTTP MCP service (same pattern as Navigator's run_navigator_http)
     let session_manager = Arc::new(LocalSessionManager::default());
@@ -241,6 +222,35 @@ async fn load_config(config_path: &PathBuf) -> Result<PorterConfig> {
     let config: PorterConfig = toml::from_str(&content)
         .map_err(|e| anyhow::anyhow!("Failed to parse config file {:?}: {}", config_path, e))?;
     Ok(config)
+}
+
+/// Shared initialization for both serve and stdio modes.
+///
+/// Loads config, builds the registry, creates the MCP server, and spawns
+/// the hot-reload background task. Returns the server and parsed config
+/// (callers may need config fields like `listen`).
+async fn init_server(
+    config_path: &PathBuf,
+    cancel: &CancellationToken,
+) -> Result<(PorterMcpServer, PorterConfig)> {
+    let config = load_config(config_path).await?;
+
+    let registry = PorterRegistry::from_config(config.clone())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to build Porter registry: {}", e))?;
+
+    let server = PorterMcpServer::new(registry);
+
+    // Spawn hot-reload background task — watches config file, swaps registry
+    // on change, notifies connected MCP client peers of tools-list-changed
+    tokio::spawn(run_hot_reload(
+        config_path.clone(),
+        server.registry_handle(),
+        server.peers_handle(),
+        cancel.child_token(),
+    ));
+
+    Ok((server, config))
 }
 
 /// Print the Porter startup banner with raised 3D ANSI block art to stderr.
