@@ -1,4 +1,4 @@
-//! Hot-reload for `porter serve`.
+//! Hot-reload for Porter (both `serve` and `stdio` modes).
 //!
 //! Watches the porter.toml config file using the `notify` crate. On each
 //! detected change (with 100ms debounce), it re-parses the config and rebuilds
