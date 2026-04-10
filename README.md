@@ -156,6 +156,8 @@ porter stdio --config /path/to/porter.toml
 Options:
 - `--config` / `-c`: Path to config file (default: `./porter.toml` or `~/.config/porter/porter.toml`)
 
+**Hot-reload**: Same as `porter serve` — Porter watches the config file for changes and sends a `tools/list_changed` notification to the connected client automatically. No restart required.
+
 ## Client Configuration
 
 Porter searches for config in order: `./porter.toml` then `~/.config/porter/porter.toml`. If you place your config at `~/.config/porter/porter.toml`, the examples below work without `--config`.
