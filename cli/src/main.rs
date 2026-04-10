@@ -152,7 +152,8 @@ async fn run_serve(
 /// Bridge all configured tools over STDIO for STDIO-based MCP clients.
 ///
 /// Loads porter.toml, builds PorterRegistry, wraps in PorterMcpServer,
-/// then serves over stdin/stdout using rmcp's serve_with_ct.
+/// spawns a hot-reload background task, then serves over stdin/stdout
+/// using rmcp's serve_with_ct.
 async fn run_stdio(config_path: PathBuf, cancel: CancellationToken) -> Result<()> {
     let (server, _config) = init_server(&config_path, &cancel).await?;
 
