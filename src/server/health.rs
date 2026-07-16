@@ -83,6 +83,7 @@ impl ErrorRateTracker {
 
     /// Number of entries currently in the window (for testing).
     #[cfg(test)]
+    #[allow(clippy::len_without_is_empty)] // test-only helper; is_empty has no use case
     pub fn len(&self) -> usize {
         self.window.len()
     }
