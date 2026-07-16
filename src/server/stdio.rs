@@ -44,6 +44,16 @@ fn spawn_stdio_child(config: &ServerConfig) -> crate::Result<Child> {
         cmd.args(&config.args);
     }
 
+    // Do NOT let the child inherit Porter's full environment — that would leak
+    // Porter's own secrets (API keys, tokens) to every downstream MCP server.
+    // Start from an empty environment, re-add only a minimal safe baseline, then
+    // apply the server's explicitly-declared env vars.
+    cmd.env_clear();
+    for key in ["PATH", "HOME", "LANG"] {
+        if let Ok(value) = std::env::var(key) {
+            cmd.env(key, value);
+        }
+    }
     if !config.env.is_empty() {
         cmd.envs(resolve_env_vars(&config.env));
     }
@@ -424,6 +434,43 @@ mod tests {
         assert!(
             matches!(result, Err(PorterError::InvalidConfig(slug, _)) if slug == "test"),
             "Expected InvalidConfig error when command is None"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_child_env_isolated_from_parent() {
+        use tokio::io::AsyncReadExt;
+
+        // A secret-looking var set in Porter's (the parent's) environment.
+        // SAFETY: test-only; no other thread reads this var concurrently.
+        unsafe { std::env::set_var("PORTER_M4_LEAK_CHECK", "super-secret") };
+
+        // `printenv` prints the child's full environment to stdout.
+        let mut config = make_stdio_config("envtest", Some("printenv"));
+        config.env.insert(
+            "PORTER_M4_DECLARED".to_string(),
+            "declared_value".to_string(),
+        );
+
+        let mut child = spawn_stdio_child(&config).expect("spawn printenv");
+        let mut stdout = child.stdout.take().expect("child stdout piped");
+        let mut output = String::new();
+        stdout
+            .read_to_string(&mut output)
+            .await
+            .expect("read child stdout");
+        let _ = child.wait().await;
+
+        // SAFETY: test-only cleanup.
+        unsafe { std::env::remove_var("PORTER_M4_LEAK_CHECK") };
+
+        assert!(
+            !output.contains("PORTER_M4_LEAK_CHECK"),
+            "parent env var leaked to child:\n{output}"
+        );
+        assert!(
+            output.contains("PORTER_M4_DECLARED=declared_value"),
+            "declared env var missing from child:\n{output}"
         );
     }
 

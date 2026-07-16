@@ -313,6 +313,7 @@ To use a recipe: open `porter.example.toml`, find the platform block, uncomment 
 
 - **Tool namespacing**: Each server's tools are prefixed with its slug to prevent name collisions
 - **Tool access gate**: Per-server `allow`/`deny` lists hide blocked tools from listings and reject them before they reach the downstream server ([details](#tool-access-gate))
+- **Environment isolation**: Child STDIO servers do **not** inherit Porter's environment. Each child starts from a cleared environment with only a minimal baseline (`PATH`, `HOME`, `LANG`) plus the vars declared in its `env` block — Porter's own secrets are never leaked downstream
 - **Health tracking**: Unhealthy servers are automatically excluded from tool listings and calls
 - **Hot-reload**: Config changes are picked up automatically without restart
 
