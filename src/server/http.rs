@@ -233,6 +233,7 @@ pub fn spawn_http_server(
 
     let tools_clone = tools.clone();
     let slug_clone = slug.clone();
+    let filter = config.tool_filter();
 
     tokio::spawn(run_http_server(
         config,
@@ -248,6 +249,7 @@ pub fn spawn_http_server(
         health_rx,
         tools,
         call_tx,
+        filter,
     }
 }
 

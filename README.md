@@ -103,7 +103,43 @@ cwd = "/path/to/dir"       # Optional working directory
 
 # For http transport:
 url = "https://mcp.example.com/mcp"  # Required for http
+
+# Tool access gate (optional, applies to any transport):
+allow = ["get_*", "search_*"]   # If present, ONLY matching tools are exposed
+deny  = ["*delete*", "merge_*"] # Matching tools are always blocked
 ```
+
+### Tool Access Gate
+
+Each server accepts optional `allow` and `deny` lists that gate which of its
+tools Porter exposes. The gate is enforced in **both** directions: denied tools
+are hidden from the aggregated tool listing **and** rejected before any call is
+forwarded to the downstream server (Porter never proxies-then-filters).
+
+Matching is applied to the downstream (un-namespaced) tool name. Each entry is
+an exact name or a simple glob:
+
+| Pattern    | Matches            | Example              |
+|------------|--------------------|----------------------|
+| `name`     | exact match        | `merge_pull_request` |
+| `prefix*`  | prefix match       | `jira_get_*`         |
+| `*suffix`  | suffix match       | `*_issue`            |
+| `*inner*`  | substring match    | `*delete*`           |
+
+A tool is permitted **iff** (`allow` is omitted **or** it matches an `allow`
+entry) **and** it matches **no** `deny` entry. **Deny always wins over allow** —
+a tool listed in both is blocked (Porter logs a warning at startup). With no
+`allow`/`deny` configured, every backend tool is proxied. An explicit empty
+list (`allow = []`) blocks every tool. A bare `*` matches everything.
+
+Blocked tools never reach the backend: a call to one is rejected by Porter
+itself with an access-policy error naming the tool, server, and reason.
+
+> **Generic executors**: Some servers front an entire API behind a single
+> "run this command" tool (e.g. `awslabs.aws-api-mcp-server`'s `call_aws`).
+> Porter's gate matches tool *names*, so it cannot tell a read from a write when
+> both ride inside one tool — for those servers, enforce read-only with the
+> server's own switch (e.g. `READ_OPERATIONS_ONLY=true`).
 
 ### Full Example
 
@@ -245,7 +281,7 @@ http://127.0.0.1:3000/mcp
 
 ## Use-Case Recipes
 
-`porter.example.toml` includes ready-to-uncomment config blocks for connecting AI agents to popular project management and code review platforms via MCP servers. Each recipe documents every exposed tool by access tier so you can make informed decisions about what to allow.
+`porter.example.toml` includes ready-to-uncomment config blocks for connecting AI agents to popular project management, code review, and cloud infrastructure platforms via MCP servers. Each recipe documents every exposed tool by access tier and ships a read-only-by-default `deny` list you can loosen.
 
 ### Access Tiers
 
@@ -253,10 +289,10 @@ http://127.0.0.1:3000/mcp
 |------|---------|-------------|----------|
 | **Read** | Enabled | Passive observation — no side effects | search, list, get, view, diff |
 | **Feedback** | Enabled | Participate in workflows without destructive side effects | create issues, add comments, update labels/status |
-| **Destructive** | Blocked | Irreversible or high-impact actions | delete, merge, close, archive |
-| **Code Write** | Blocked | Significant mutations to source code | push files, create branches, fork repos |
+| **Destructive** | Denied | Irreversible or high-impact actions | delete, merge, close, archive |
+| **Code Write** | Denied | Significant mutations to source code | push files, create branches, fork repos |
 
-**Read** and **Feedback** tools are safe to expose to AI agents by default. **Destructive** and **Code Write** tools should be explicitly opted into after reviewing the implications.
+Each recipe ships a `deny` list (see [Tool Access Gate](#tool-access-gate)) that blocks its **Destructive** and **Code Write** tools out of the box, so **Read** and **Feedback** tools are the only ones exposed by default. To opt a blocked tool back in, delete its line from that server's `deny` list after reviewing the implications.
 
 ### Available Recipes
 
@@ -267,6 +303,7 @@ http://127.0.0.1:3000/mcp
 | Linear | `mcp-remote` → `https://mcp.linear.app/sse` | STDIO (remote bridge) | OAuth (browser flow) |
 | Jira | `mcp-atlassian` (via `uvx`) | STDIO | `JIRA_URL` + `JIRA_USERNAME` + `JIRA_API_TOKEN` |
 | ClickUp | `clickup-mcp-server` | STDIO | `CLICKUP_API_KEY` + `CLICKUP_TEAM_ID` |
+| AWS | `awslabs.aws-api-mcp-server` (via `uvx`) | STDIO | `AWS_PROFILE` (+ `READ_OPERATIONS_ONLY=true` for read-only) |
 
 To use a recipe: open `porter.example.toml`, find the platform block, uncomment it, set the required environment variables, and copy it into your `porter.toml`.
 
@@ -275,6 +312,7 @@ To use a recipe: open `porter.example.toml`, find the platform block, uncomment 
 ## Safety
 
 - **Tool namespacing**: Each server's tools are prefixed with its slug to prevent name collisions
+- **Tool access gate**: Per-server `allow`/`deny` lists hide blocked tools from listings and reject them before they reach the downstream server ([details](#tool-access-gate))
 - **Health tracking**: Unhealthy servers are automatically excluded from tool listings and calls
 - **Hot-reload**: Config changes are picked up automatically without restart
 

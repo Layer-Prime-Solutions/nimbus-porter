@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
 
+use crate::config::ToolFilter;
+use crate::namespace::unnamespace_tool_name;
 use crate::server::health::HealthState;
 
 /// Maximum consecutive failures before marking server Unhealthy.
@@ -39,6 +41,7 @@ pub struct ServerHandle {
     pub(crate) health_rx: watch::Receiver<HealthState>,
     pub(crate) tools: Arc<RwLock<Vec<Tool>>>,
     pub(crate) call_tx: mpsc::Sender<ToolCallRequest>,
+    pub(crate) filter: ToolFilter,
 }
 
 impl ServerHandle {
@@ -48,8 +51,35 @@ impl ServerHandle {
     }
 
     /// Returns a snapshot of the currently cached tools (namespaced).
+    ///
+    /// Tools blocked by this server's allow/deny policy are omitted, so callers
+    /// never see a tool they are not permitted to invoke.
     pub async fn tools(&self) -> Vec<Tool> {
-        self.tools.read().await.clone()
+        self.tools
+            .read()
+            .await
+            .iter()
+            .filter(|tool| {
+                self.filter
+                    .permits(Self::downstream_name(tool.name.as_ref()))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Return why the given tool is blocked by this server's allow/deny
+    /// policy ("deny list" / "not in allow list"), or `None` if permitted.
+    ///
+    /// Accepts either the namespaced name (`slug__tool`) or the downstream,
+    /// un-namespaced name — the policy is always evaluated against the
+    /// downstream name.
+    pub(crate) fn tool_block_reason(&self, name: &str) -> Option<&'static str> {
+        self.filter.block_reason(Self::downstream_name(name))
+    }
+
+    /// Strip the namespace prefix if present, yielding the downstream tool name.
+    fn downstream_name(name: &str) -> &str {
+        unnamespace_tool_name(name).map_or(name, |(_slug, tool)| tool)
     }
 
     /// Invoke a tool on the managed server.
@@ -92,6 +122,7 @@ mod tests {
             health_rx,
             tools,
             call_tx,
+            filter: ToolFilter::default(),
         };
 
         assert_eq!(handle.health(), HealthState::Starting);
@@ -112,6 +143,7 @@ mod tests {
             health_rx,
             tools,
             call_tx,
+            filter: ToolFilter::default(),
         };
 
         let tool_list = handle.tools().await;
@@ -129,6 +161,7 @@ mod tests {
             health_rx,
             tools,
             call_tx,
+            filter: ToolFilter::default(),
         };
 
         // Drop receiver to simulate a closed channel
@@ -146,5 +179,57 @@ mod tests {
             result,
             Err(crate::PorterError::ServerUnhealthy(slug, _)) if slug == "test-server"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_server_handle_tools_hides_denied() {
+        use rmcp::model::Tool;
+        use std::sync::Arc as StdArc;
+
+        fn tool(name: &str) -> Tool {
+            let schema = StdArc::new(
+                serde_json::json!({"type": "object", "properties": {}})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            );
+            Tool {
+                name: name.to_string().into(),
+                title: None,
+                description: None,
+                input_schema: schema,
+                output_schema: None,
+                annotations: None,
+                icons: None,
+                meta: None,
+            }
+        }
+
+        let (_health_tx, health_rx) = watch::channel(HealthState::Healthy);
+        let (call_tx, _call_rx) = mpsc::channel(1);
+        // Tools are stored namespaced, as the transport loops record them.
+        let tools = Arc::new(RwLock::new(vec![
+            tool("gh__get_issue"),
+            tool("gh__delete_issue"),
+        ]));
+        let handle = ServerHandle {
+            slug: "gh".to_string(),
+            health_rx,
+            tools,
+            call_tx,
+            filter: ToolFilter::new(None, vec!["*delete*".to_string()]),
+        };
+
+        let visible = handle.tools().await;
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].name.as_ref(), "gh__get_issue");
+        // Permission check accepts both namespaced and un-namespaced names.
+        assert!(handle.tool_block_reason("gh__get_issue").is_none());
+        assert!(handle.tool_block_reason("get_issue").is_none());
+        assert_eq!(
+            handle.tool_block_reason("gh__delete_issue"),
+            Some("deny list")
+        );
+        assert_eq!(handle.tool_block_reason("delete_issue"), Some("deny list"));
     }
 }

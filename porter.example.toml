@@ -45,33 +45,55 @@ args = ["/home/user/projects"]
 # url = "https://mcp.context7.com/mcp"
 
 
+# ─── Tool Access Gate (allow / deny) ─────────────────────────────────────────
+#
+# Every server accepts optional `allow` and `deny` lists that gate which of its
+# tools Porter exposes. The gate is enforced in BOTH directions: denied tools
+# are hidden from the aggregated tool listing AND rejected before any call is
+# forwarded to the downstream server.
+#
+#   allow = ["get_*", "search_*"]   # if present, ONLY matching tools pass
+#   deny  = ["*delete*", "merge_*"] # matching tools are always blocked
+#
+# Matching is applied to the downstream (un-namespaced) tool name. Each entry is
+# an exact name or a simple glob:
+#
+#   name       exact match          (e.g. "merge_pull_request")
+#   prefix*    prefix match         (e.g. "jira_get_*")
+#   *suffix    suffix match         (e.g. "*_issue")
+#   *inner*    substring match      (e.g. "*delete*")
+#
+# A tool is permitted iff (allow is omitted OR it matches an allow entry) AND
+# it matches NO deny entry. Deny always wins over allow — a tool listed in both
+# is blocked (Porter logs a warning at startup). With no allow/deny configured,
+# every backend tool is proxied; an explicit `allow = []` blocks every tool.
+#
+#
 # ─── Use-Case Recipes: Project Management & Code Review MCPs ──────────────────
 #
 # Pre-baked configs for connecting AI agents to project management and code
 # review platforms via MCP servers. Uncomment a block and set the required
 # environment variables to get started.
 #
-# ACCESS TIERS — Each recipe documents which tools fall into which tier so
-# you can make informed decisions about what to expose to AI agents:
+# ACCESS TIERS — Each recipe groups tools into tiers. The recipes below ship a
+# `deny` list that BLOCKS the DESTRUCTIVE and CODE-WRITE tiers by default; READ
+# and FEEDBACK tools stay enabled. To expose a blocked tool, delete its line
+# from that server's `deny` list.
 #
-#   READ        (always safe)       Search, list, get, view, diff — passive
-#                                   observation. No side effects.
+#   READ        (enabled)   Search, list, get, view, diff — passive observation.
+#                           No side effects.
 #
-#   FEEDBACK    (enabled by default) Create issues, add comments, update
-#                                   labels/status, create docs — how AI agents
-#                                   participate in workflows without destructive
-#                                   side effects.
+#   FEEDBACK    (enabled)   Create issues, add comments, update labels/status,
+#                           create docs — how AI agents participate in workflows
+#                           without destructive side effects.
 #
-#   DESTRUCTIVE (blocked by default) Delete, merge, close, archive —
-#                                   irreversible or high-impact actions best
-#                                   left to humans. Opt in explicitly.
+#   DESTRUCTIVE (denied)    Delete, merge, close, archive — irreversible or
+#                           high-impact actions best left to humans. Opt in by
+#                           removing the tool from `deny`.
 #
-#   CODE WRITE  (blocked by default) Push files, create branches, fork repos —
-#                                   significant mutations to source code.
-#                                   Opt in explicitly.
-#
-# Recipes below list every tool by tier. Uncomment the block, then remove
-# individual tool lines from `allow` if you want to restrict further.
+#   CODE WRITE  (denied)    Push files, create branches, fork repos — significant
+#                           mutations to source code. Opt in by removing the tool
+#                           from `deny`.
 
 
 # ─── GitHub (via @modelcontextprotocol/server-github) ─────────────────────────
@@ -121,6 +143,16 @@ args = ["/home/user/projects"]
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-github"]
 # env.GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_TOKEN}"
+# # Block the DESTRUCTIVE + CODE-WRITE tiers (READ + FEEDBACK stay enabled).
+# deny = [
+#   "merge_pull_request",       # DESTRUCTIVE
+#   "create_or_update_file",    # CODE WRITE
+#   "push_files",               # CODE WRITE
+#   "create_repository",        # CODE WRITE
+#   "fork_repository",          # CODE WRITE
+#   "create_branch",            # CODE WRITE
+#   "create_pull_request",      # CODE WRITE
+# ]
 
 
 # ─── GitLab (via @modelcontextprotocol/server-gitlab) ─────────────────────────
@@ -166,6 +198,15 @@ args = ["/home/user/projects"]
 # args = ["-y", "@modelcontextprotocol/server-gitlab"]
 # env.GITLAB_PERSONAL_ACCESS_TOKEN = "${GITLAB_TOKEN}"
 # env.GITLAB_API_URL = "${GITLAB_API_URL}"
+# # Block the DESTRUCTIVE + CODE-WRITE tiers (READ + FEEDBACK stay enabled).
+# deny = [
+#   "accept_merge_request",     # DESTRUCTIVE
+#   "delete_issue",             # DESTRUCTIVE
+#   "create_or_update_file",    # CODE WRITE
+#   "create_merge_request",     # CODE WRITE
+#   "create_branch",            # CODE WRITE
+#   "fork_project",             # CODE WRITE
+# ]
 
 
 # ─── Linear (via mcp-remote → https://mcp.linear.app/sse) ────────────────────
@@ -205,6 +246,10 @@ args = ["/home/user/projects"]
 # transport = "stdio"
 # command = "npx"
 # args = ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
+# # Block the DESTRUCTIVE tier (READ + FEEDBACK stay enabled).
+# deny = [
+#   "delete_attachment",        # DESTRUCTIVE
+# ]
 
 
 # ─── Jira (via mcp-atlassian) ────────────────────────────────────────────────
@@ -246,6 +291,10 @@ args = ["/home/user/projects"]
 # transport = "stdio"
 # command = "uvx"
 # args = ["mcp-atlassian", "--jira-url", "$JIRA_URL", "--jira-username", "$JIRA_USERNAME", "--jira-api-token", "$JIRA_API_TOKEN"]
+# # Block the DESTRUCTIVE tier (READ + FEEDBACK stay enabled).
+# deny = [
+#   "jira_delete_issue",        # DESTRUCTIVE
+# ]
 
 
 # ─── ClickUp (via clickup-mcp-server) ────────────────────────────────────────
@@ -286,3 +335,46 @@ args = ["/home/user/projects"]
 # args = ["-y", "clickup-mcp-server"]
 # env.CLICKUP_API_KEY = "${CLICKUP_API_KEY}"
 # env.CLICKUP_TEAM_ID = "${CLICKUP_TEAM_ID}"
+# # Block the DESTRUCTIVE tier (READ + FEEDBACK stay enabled).
+# deny = [
+#   "delete_task",              # DESTRUCTIVE
+#   "delete_list",              # DESTRUCTIVE
+#   "delete_folder",            # DESTRUCTIVE
+# ]
+
+
+# ─── Use-Case Recipes: Cloud Infrastructure MCPs ─────────────────────────────
+#
+# Cloud providers expose infrastructure through MCP servers. Unlike the
+# per-operation tools above, some cloud servers front their ENTIRE API behind a
+# single generic "execute this command" tool. Porter's allow/deny gate works on
+# tool NAMES, so it cannot tell a read (`aws s3 ls`) from a write (`aws s3 rb`)
+# when both ride inside one tool — for those servers, read-only MUST be enforced
+# by the downstream server's own switch, not by Porter's name gate.
+
+
+# ─── AWS (via awslabs.aws-api-mcp-server) ────────────────────────────────────
+#
+# Install: uv tool install awslabs.aws-api-mcp-server  (or run with uvx)
+# Auth:    export AWS_PROFILE=your-profile  (or standard AWS_ACCESS_KEY_ID /
+#          AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN credentials)
+# Docs:    https://awslabs.github.io/mcp/servers/aws-api-mcp-server
+#
+# Tools (all AWS access flows through `call_aws`):
+#   suggest_aws_commands        — suggest CLI commands for a natural-language query (READ)
+#   call_aws                    — execute an AWS CLI command (READ **or** WRITE,
+#                                 depending on the command string)
+#
+# READ-ONLY ENFORCEMENT — `call_aws` can both read and mutate, so a Porter
+# `deny` cannot make it read-only. Set the server's own `READ_OPERATIONS_ONLY`
+# switch instead: `export READ_OPERATIONS_ONLY=true` before starting Porter.
+# The env reference below forwards it to the child (Porter clears the child's
+# environment, so the flag must be declared here to reach the server).
+
+# [servers.aws]
+# slug = "aws"
+# transport = "stdio"
+# command = "uvx"
+# args = ["awslabs.aws-api-mcp-server@latest"]
+# env.AWS_PROFILE = "${AWS_PROFILE}"
+# env.READ_OPERATIONS_ONLY = "${READ_OPERATIONS_ONLY}"   # export READ_OPERATIONS_ONLY=true

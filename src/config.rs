@@ -93,6 +93,23 @@ pub struct ServerConfig {
     /// Configurable MCP handshake timeout per CONTEXT.md decision, default 30s
     #[serde(default = "default_handshake_timeout_secs")]
     pub handshake_timeout_secs: u64,
+    /// Tool allow-list, matched against the downstream (un-namespaced) tool
+    /// name — e.g. `create_issue`, not `github__create_issue`.
+    ///
+    /// Omitted (`None`, the default) means "allow everything not explicitly
+    /// denied". When present, a tool is permitted only if it matches at least
+    /// one entry — an explicit empty list (`allow = []`) therefore blocks every
+    /// tool. Entries are exact names or a simple glob (`prefix*`, `*suffix`,
+    /// `*inner*`).
+    pub allow: Option<Vec<String>>,
+    /// Tool deny-list, matched against the downstream (un-namespaced) tool
+    /// name — e.g. `delete_issue`, not `github__delete_issue`.
+    ///
+    /// A tool matching any deny entry is blocked regardless of `allow` — deny
+    /// always wins. Entries are exact names or a simple glob (`prefix*`,
+    /// `*suffix`, `*inner*`).
+    #[serde(default)]
+    pub deny: Vec<String>,
 }
 
 /// Supported MCP transport types.
@@ -109,6 +126,83 @@ fn default_enabled() -> bool {
 
 fn default_handshake_timeout_secs() -> u64 {
     30
+}
+
+impl ServerConfig {
+    /// Build the compiled tool-access filter for this server from its
+    /// `allow`/`deny` lists.
+    pub(crate) fn tool_filter(&self) -> ToolFilter {
+        ToolFilter::new(self.allow.clone(), self.deny.clone())
+    }
+}
+
+/// Compiled allow/deny policy that decides whether a downstream tool is exposed.
+///
+/// A tool name is permitted iff:
+/// - `allow` is `None` **or** the name matches at least one `allow` entry, AND
+/// - the name matches **no** `deny` entry.
+///
+/// Deny always wins over allow. Every entry is matched with [`glob_match`]:
+/// an exact name, or a `*` wildcard at the start (suffix match), end (prefix
+/// match), or both ends (substring match).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToolFilter {
+    allow: Option<Vec<String>>,
+    deny: Vec<String>,
+}
+
+impl ToolFilter {
+    pub(crate) fn new(allow: Option<Vec<String>>, deny: Vec<String>) -> Self {
+        Self { allow, deny }
+    }
+
+    /// Return why `tool_name` (the downstream, un-namespaced name) is blocked
+    /// by this policy, or `None` if it is permitted.
+    ///
+    /// Deny is checked first so a tool present in both lists reports the
+    /// deny-list reason — deny always wins.
+    pub(crate) fn block_reason(&self, tool_name: &str) -> Option<&'static str> {
+        if self
+            .deny
+            .iter()
+            .any(|pattern| glob_match(pattern, tool_name))
+        {
+            return Some("deny list");
+        }
+        match &self.allow {
+            None => None,
+            Some(allow) if allow.iter().any(|pattern| glob_match(pattern, tool_name)) => None,
+            Some(_) => Some("not in allow list"),
+        }
+    }
+
+    /// Return `true` if `tool_name` (the downstream, un-namespaced name) is
+    /// permitted by this policy.
+    pub(crate) fn permits(&self, tool_name: &str) -> bool {
+        self.block_reason(tool_name).is_none()
+    }
+}
+
+/// Match a tool name against a single pattern.
+///
+/// Supported forms (kept deliberately simple and predictable):
+/// - `name`     — exact match.
+/// - `prefix*`  — prefix match (trailing wildcard).
+/// - `*suffix`  — suffix match (leading wildcard).
+/// - `*inner*`  — substring match (wildcard both ends).
+///
+/// A bare `*` (or `**`) matches everything. `*` is the only wildcard; it is not
+/// interpreted anywhere other than the ends of the pattern.
+fn glob_match(pattern: &str, name: &str) -> bool {
+    let has_prefix_star = pattern.starts_with('*');
+    let has_suffix_star = pattern.ends_with('*');
+    let core = pattern.trim_matches('*');
+    match (has_prefix_star, has_suffix_star) {
+        (true, true) => name.contains(core),
+        (true, false) => name.ends_with(core),
+        (false, true) => name.starts_with(core),
+        (false, false) => name == core,
+    }
 }
 
 /// Validate slug format: non-empty, alphanumeric + hyphens only, no double underscores.
@@ -187,6 +281,27 @@ impl PorterConfig {
                             key, value
                         ),
                     ));
+                }
+            }
+
+            // 5. Validate allow/deny tool lists: no empty entries; a tool in
+            // both lists is legal (deny wins) but almost certainly a mistake.
+            let allow = config.allow.as_deref().unwrap_or(&[]);
+            for entry in allow.iter().chain(&config.deny) {
+                if entry.is_empty() {
+                    return Err(PorterError::InvalidConfig(
+                        slug.clone(),
+                        "allow/deny entries must be non-empty tool names".to_string(),
+                    ));
+                }
+            }
+            for entry in allow {
+                if config.deny.iter().any(|d| d == entry) {
+                    tracing::warn!(
+                        server = %slug,
+                        tool = %entry,
+                        "tool listed in both allow and deny — deny wins, tool will be blocked"
+                    );
                 }
             }
         }
@@ -431,5 +546,190 @@ mod tests {
         );
         assert_eq!(config.listen.host, "127.0.0.1");
         assert_eq!(config.listen.port, 9090);
+    }
+
+    #[test]
+    fn test_glob_match_forms() {
+        // Exact
+        assert!(glob_match("call_aws", "call_aws"));
+        assert!(!glob_match("call_aws", "call_awss"));
+        // Prefix (trailing *)
+        assert!(glob_match("get_*", "get_issue"));
+        assert!(glob_match("get_*", "get_"));
+        assert!(!glob_match("get_*", "list_issue"));
+        // Suffix (leading *)
+        assert!(glob_match("*_issue", "create_issue"));
+        assert!(!glob_match("*_issue", "issue_note"));
+        // Substring (both ends)
+        assert!(glob_match("*create*", "batch_create_issues"));
+        assert!(glob_match("*create*", "create_repository"));
+        assert!(!glob_match("*create*", "delete_issue"));
+        // Bare star matches everything
+        assert!(glob_match("*", "anything"));
+    }
+
+    #[test]
+    fn test_tool_filter_default_allows_all() {
+        let filter = ToolFilter::default();
+        assert!(filter.permits("call_aws"));
+        assert!(filter.permits("delete_everything"));
+    }
+
+    #[test]
+    fn test_tool_filter_allow_only() {
+        let filter = ToolFilter::new(
+            Some(vec!["get_*".to_string(), "list_issues".to_string()]),
+            vec![],
+        );
+        assert!(filter.permits("get_issue"));
+        assert!(filter.permits("list_issues"));
+        // Not in the allow-list — rejected.
+        assert!(!filter.permits("create_issue"));
+        assert_eq!(
+            filter.block_reason("create_issue"),
+            Some("not in allow list")
+        );
+    }
+
+    #[test]
+    fn test_tool_filter_empty_allow_blocks_everything() {
+        // An explicit `allow = []` is a lockdown: nothing passes.
+        let filter = ToolFilter::new(Some(vec![]), vec![]);
+        assert!(!filter.permits("get_issue"));
+        assert_eq!(filter.block_reason("get_issue"), Some("not in allow list"));
+    }
+
+    #[test]
+    fn test_tool_filter_deny_only() {
+        let filter = ToolFilter::new(None, vec!["*delete*".to_string(), "merge_*".to_string()]);
+        // Everything not denied is permitted.
+        assert!(filter.permits("get_issue"));
+        assert!(filter.permits("create_issue"));
+        // Denied by substring / prefix pattern.
+        assert!(!filter.permits("delete_task"));
+        assert!(!filter.permits("merge_pull_request"));
+        assert_eq!(filter.block_reason("delete_task"), Some("deny list"));
+    }
+
+    #[test]
+    fn test_tool_filter_deny_overrides_allow() {
+        // A tool present in BOTH allow and deny is rejected — deny wins,
+        // and the reported reason is the deny list.
+        let filter = ToolFilter::new(
+            Some(vec!["*".to_string(), "push_files".to_string()]),
+            vec!["push_files".to_string(), "*delete*".to_string()],
+        );
+        assert!(filter.permits("get_file_contents"));
+        assert!(!filter.permits("push_files"));
+        assert!(!filter.permits("delete_issue"));
+        assert_eq!(filter.block_reason("push_files"), Some("deny list"));
+    }
+
+    #[test]
+    fn test_tool_filter_glob_prefix_match() {
+        let filter = ToolFilter::new(Some(vec!["jira_get_*".to_string()]), vec![]);
+        assert!(filter.permits("jira_get_issue"));
+        assert!(filter.permits("jira_get_sprint_issues"));
+        assert!(!filter.permits("jira_create_issue"));
+    }
+
+    #[test]
+    fn test_server_config_tool_filter_from_toml() {
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            allow = ["get_*", "search_*"]
+            deny = ["*delete*"]
+            "#,
+        );
+        let server = config.servers.get("gh").unwrap();
+        assert_eq!(
+            server.allow,
+            Some(vec!["get_*".to_string(), "search_*".to_string()])
+        );
+        assert_eq!(server.deny, vec!["*delete*"]);
+        let filter = server.tool_filter();
+        assert!(filter.permits("get_issue"));
+        assert!(!filter.permits("delete_issue"));
+        assert!(!filter.permits("create_issue"));
+    }
+
+    #[test]
+    fn test_server_config_filter_lists_default_absent() {
+        // Existing configs without allow/deny still parse and allow everything.
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            "#,
+        );
+        let server = config.servers.get("gh").unwrap();
+        assert!(server.allow.is_none());
+        assert!(server.deny.is_empty());
+        assert!(server.tool_filter().permits("anything"));
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_allow_entry() {
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            allow = ["get_issue", ""]
+            "#,
+        );
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(PorterError::InvalidConfig(slug, msg)) if slug == "gh" && msg.contains("non-empty"))
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_deny_entry() {
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            deny = [""]
+            "#,
+        );
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(PorterError::InvalidConfig(slug, msg)) if slug == "gh" && msg.contains("non-empty"))
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_allow_deny_overlap() {
+        // A tool in both lists is legal (deny wins, warning emitted) — validate
+        // must not reject it.
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            allow = ["get_issue", "push_files"]
+            deny = ["push_files"]
+            "#,
+        );
+        assert!(config.validate().is_ok());
+        assert!(
+            !config
+                .servers
+                .get("gh")
+                .unwrap()
+                .tool_filter()
+                .permits("push_files")
+        );
     }
 }

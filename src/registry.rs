@@ -111,6 +111,16 @@ impl PorterRegistry {
             ));
         }
 
+        // Enforce the allow/deny policy BEFORE forwarding to the downstream
+        // server — a blocked tool must never reach the backend.
+        if let Some(reason) = handle.tool_block_reason(original_name) {
+            return Err(PorterError::ToolNotPermitted(
+                slug.to_string(),
+                original_name.to_string(),
+                reason.to_string(),
+            ));
+        }
+
         // Build call params with the original (un-namespaced) tool name
         let params = rmcp::model::CallToolRequestParams {
             name: original_name.to_string().into(),
@@ -161,7 +171,7 @@ impl PorterRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PorterConfig, ServerConfig, TransportKind};
+    use crate::config::{PorterConfig, ServerConfig, ToolFilter, TransportKind};
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -189,6 +199,8 @@ mod tests {
             cwd: None,
             url: None,
             handshake_timeout_secs: 30,
+            allow: None,
+            deny: vec![],
         }
     }
 
@@ -200,16 +212,47 @@ mod tests {
         slug: &str,
         health: HealthState,
     ) -> (ServerHandle, tokio::sync::watch::Sender<HealthState>) {
+        mock_server_handle_with(slug, health, vec![], ToolFilter::default())
+    }
+
+    /// Like `mock_server_handle` but with an explicit tool list (namespaced) and
+    /// allow/deny filter — used to exercise policy enforcement.
+    fn mock_server_handle_with(
+        slug: &str,
+        health: HealthState,
+        tools: Vec<Tool>,
+        filter: ToolFilter,
+    ) -> (ServerHandle, tokio::sync::watch::Sender<HealthState>) {
         let (health_tx, health_rx) = tokio::sync::watch::channel(health);
         let (call_tx, _call_rx) = tokio::sync::mpsc::channel(1);
-        let tools = Arc::new(RwLock::new(vec![]));
+        let tools = Arc::new(RwLock::new(tools));
         let handle = ServerHandle {
             slug: slug.to_string(),
             health_rx,
             tools,
             call_tx,
+            filter,
         };
         (handle, health_tx)
+    }
+
+    fn namespaced_tool(name: &str) -> Tool {
+        let schema = Arc::new(
+            serde_json::json!({"type": "object", "properties": {}})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        Tool {
+            name: name.to_string().into(),
+            title: None,
+            description: None,
+            input_schema: schema,
+            output_schema: None,
+            annotations: None,
+            icons: None,
+            meta: None,
+        }
     }
 
     #[tokio::test]
@@ -228,6 +271,8 @@ mod tests {
                 cwd: None,
                 url: None,
                 handshake_timeout_secs: 30,
+                allow: None,
+                deny: vec![],
             },
         );
         map.insert(
@@ -242,6 +287,8 @@ mod tests {
                 cwd: None,
                 url: Some("http://example.com/mcp".to_string()),
                 handshake_timeout_secs: 30,
+                allow: None,
+                deny: vec![],
             },
         );
         let config = PorterConfig {
@@ -312,6 +359,72 @@ mod tests {
         assert!(
             matches!(result, Err(PorterError::ServerUnhealthy(slug, _)) if slug == "broken"),
             "Expected ServerUnhealthy error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_denied_tool_hidden_and_rejected() {
+        // A server that allows reads but denies any mutating tool.
+        let filter = ToolFilter::new(None, vec!["*delete*".to_string()]);
+        let (handle, _health_tx) = mock_server_handle_with(
+            "gh",
+            HealthState::Healthy,
+            vec![
+                namespaced_tool("gh__get_issue"),
+                namespaced_tool("gh__delete_issue"),
+            ],
+            filter,
+        );
+        let mut servers = HashMap::new();
+        servers.insert("gh".to_string(), handle);
+        let registry = PorterRegistry {
+            servers,
+            cancel: CancellationToken::new(),
+        };
+
+        // Listing hides the denied tool.
+        let tools = registry.tools().await;
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(names, vec!["gh__get_issue"]);
+
+        // call_tool rejects the denied tool BEFORE forwarding.
+        let result = registry.call_tool("gh__delete_issue", None).await;
+        assert!(
+            matches!(&result, Err(PorterError::ToolNotPermitted(slug, tool, reason)) if slug == "gh" && tool == "delete_issue" && reason == "deny list"),
+            "Expected ToolNotPermitted(deny list) error, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_unlisted_tool_hidden_and_rejected_in_allow_mode() {
+        // A server locked down to an explicit allow-list.
+        let filter = ToolFilter::new(Some(vec!["get_issue".to_string()]), vec![]);
+        let (handle, _health_tx) = mock_server_handle_with(
+            "gh",
+            HealthState::Healthy,
+            vec![
+                namespaced_tool("gh__get_issue"),
+                namespaced_tool("gh__create_issue"),
+            ],
+            filter,
+        );
+        let mut servers = HashMap::new();
+        servers.insert("gh".to_string(), handle);
+        let registry = PorterRegistry {
+            servers,
+            cancel: CancellationToken::new(),
+        };
+
+        // Listing exposes only the allow-listed tool.
+        let tools = registry.tools().await;
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(names, vec!["gh__get_issue"]);
+
+        // call_tool rejects anything outside the allow-list BEFORE forwarding.
+        let result = registry.call_tool("gh__create_issue", None).await;
+        assert!(
+            matches!(&result, Err(PorterError::ToolNotPermitted(slug, tool, reason)) if slug == "gh" && tool == "create_issue" && reason == "not in allow list"),
+            "Expected ToolNotPermitted(not in allow list) error, got {result:?}"
         );
     }
 

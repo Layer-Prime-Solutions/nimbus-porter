@@ -21,6 +21,11 @@ pub enum PorterError {
     #[error("server '{0}' is unhealthy: {1}")]
     ServerUnhealthy(String, String),
 
+    /// Tool call rejected by the server's allow/deny policy.
+    /// Fields: server slug, tool name, block reason ("deny list" / "not in allow list").
+    #[error("tool '{1}' on server '{0}' is blocked by access policy ({2})")]
+    ToolNotPermitted(String, String, String),
+
     /// MCP protocol error for a named server
     #[error("protocol error for server '{0}': {1}")]
     Protocol(String, String),
@@ -45,6 +50,19 @@ mod tests {
     fn test_duplicate_slug_display() {
         let err = PorterError::DuplicateSlug("gh".to_string());
         assert_eq!(err.to_string(), "duplicate server slug: gh");
+    }
+
+    #[test]
+    fn test_tool_not_permitted_display() {
+        let err = PorterError::ToolNotPermitted(
+            "github".to_string(),
+            "delete_repository".to_string(),
+            "deny list".to_string(),
+        );
+        assert_eq!(
+            err.to_string(),
+            "tool 'delete_repository' on server 'github' is blocked by access policy (deny list)"
+        );
     }
 
     #[test]

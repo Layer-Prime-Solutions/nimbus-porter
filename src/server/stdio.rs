@@ -375,6 +375,7 @@ pub fn spawn_stdio_server(
 
     let tools_clone = tools.clone();
     let slug_clone = slug.clone();
+    let filter = config.tool_filter();
 
     tokio::spawn(run_stdio_server(
         config,
@@ -390,6 +391,7 @@ pub fn spawn_stdio_server(
         health_rx,
         tools,
         call_tx,
+        filter,
     }
 }
 
@@ -410,6 +412,8 @@ mod tests {
             cwd: None,
             url: None,
             handshake_timeout_secs: 30,
+            allow: None,
+            deny: vec![],
         }
     }
 
