@@ -205,6 +205,21 @@ fn glob_match(pattern: &str, name: &str) -> bool {
     }
 }
 
+/// Return `true` if `pattern` contains a `*` in a position [`glob_match`] does
+/// not interpret — anywhere other than a single leading and/or trailing
+/// character. Such a `*` is silently treated as a literal, so the pattern would
+/// fail open (match nothing / never fire); [`PorterConfig::validate`] rejects it.
+///
+/// Valid: `name`, `prefix*`, `*suffix`, `*inner*`, `*`, `**`.
+/// Invalid: `delete*confirm`, `a*b*c`, `*a*b*`, `**abc`.
+fn has_unsupported_glob_star(pattern: &str) -> bool {
+    // Strip at most one leading and one trailing '*' — the only positions
+    // glob_match honors — then any remaining '*' is an unsupported interior one.
+    let after_prefix = pattern.strip_prefix('*').unwrap_or(pattern);
+    let core = after_prefix.strip_suffix('*').unwrap_or(after_prefix);
+    core.contains('*')
+}
+
 /// Validate slug format: non-empty, alphanumeric + hyphens only, no double underscores.
 fn validate_slug_format(slug: &str) -> crate::Result<()> {
     if slug.is_empty()
@@ -292,6 +307,21 @@ impl PorterConfig {
                     return Err(PorterError::InvalidConfig(
                         slug.clone(),
                         "allow/deny entries must be non-empty tool names".to_string(),
+                    ));
+                }
+                // Reject a `*` in any position glob_match cannot interpret (an
+                // interior star, or a doubled leading/trailing one). Such a
+                // pattern is silently treated as a literal and never fires — a
+                // fail-open misconfiguration — so fail fast instead.
+                if has_unsupported_glob_star(entry) {
+                    return Err(PorterError::InvalidConfig(
+                        slug.clone(),
+                        format!(
+                            "allow/deny entry '{}' has a '*' in an unsupported position — \
+                             wildcards are only allowed as a single leading and/or trailing \
+                             character (e.g. 'get_*', '*_issue', '*delete*')",
+                            entry
+                        ),
                     ));
                 }
             }
@@ -706,6 +736,78 @@ mod tests {
         assert!(
             matches!(result, Err(PorterError::InvalidConfig(slug, msg)) if slug == "gh" && msg.contains("non-empty"))
         );
+    }
+
+    #[test]
+    fn test_validate_rejects_interior_star_pattern() {
+        // An interior `*` (`delete*confirm`) is treated as a literal by
+        // glob_match and would silently match nothing — a fail-open misconfig.
+        // validate() must reject it up front.
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            deny = ["delete*confirm"]
+            "#,
+        );
+        let result = config.validate();
+        assert!(
+            matches!(&result, Err(PorterError::InvalidConfig(slug, msg)) if slug == "gh" && msg.contains("unsupported position")),
+            "interior-* pattern should be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_doubled_leading_star_pattern() {
+        // `**abc` has a second star at position 1 — not the single leading
+        // position glob_match honors — so it must also be rejected.
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            allow = ["**abc"]
+            "#,
+        );
+        let result = config.validate();
+        assert!(
+            matches!(&result, Err(PorterError::InvalidConfig(slug, _)) if slug == "gh"),
+            "doubled leading-* pattern should be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_supported_glob_positions() {
+        // Every form glob_match honors must pass validation.
+        let config = parse_toml(
+            r#"
+            [servers.gh]
+            slug = "gh"
+            transport = "stdio"
+            command = "gh-mcp"
+            allow = ["get_issue", "get_*", "*_issue", "*delete*", "*"]
+            "#,
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_has_unsupported_glob_star() {
+        // Supported forms.
+        assert!(!has_unsupported_glob_star("name"));
+        assert!(!has_unsupported_glob_star("prefix*"));
+        assert!(!has_unsupported_glob_star("*suffix"));
+        assert!(!has_unsupported_glob_star("*inner*"));
+        assert!(!has_unsupported_glob_star("*"));
+        assert!(!has_unsupported_glob_star("**"));
+        // Unsupported forms.
+        assert!(has_unsupported_glob_star("delete*confirm"));
+        assert!(has_unsupported_glob_star("a*b*c"));
+        assert!(has_unsupported_glob_star("*a*b*"));
+        assert!(has_unsupported_glob_star("**abc"));
     }
 
     #[test]

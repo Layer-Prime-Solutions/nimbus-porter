@@ -70,9 +70,12 @@ impl ServerHandle {
     /// Return why the given tool is blocked by this server's allow/deny
     /// policy ("deny list" / "not in allow list"), or `None` if permitted.
     ///
-    /// Accepts either the namespaced name (`slug__tool`) or the downstream,
-    /// un-namespaced name — the policy is always evaluated against the
-    /// downstream name.
+    /// `name` must be the namespaced name (`slug__tool`) — the same string the
+    /// listing path stores and filters on. The namespace is stripped exactly
+    /// once here, so `tools()` and `call_tool` always evaluate the policy
+    /// against the identical downstream name, even when that downstream name
+    /// itself contains `__` (e.g. `gh__admin__delete` → `admin__delete`). A
+    /// bare un-namespaced name without any `__` is also accepted unchanged.
     pub(crate) fn tool_block_reason(&self, name: &str) -> Option<&'static str> {
         self.filter.block_reason(Self::downstream_name(name))
     }

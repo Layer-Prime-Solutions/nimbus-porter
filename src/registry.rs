@@ -112,8 +112,12 @@ impl PorterRegistry {
         }
 
         // Enforce the allow/deny policy BEFORE forwarding to the downstream
-        // server — a blocked tool must never reach the backend.
-        if let Some(reason) = handle.tool_block_reason(original_name) {
+        // server — a blocked tool must never reach the backend. Pass the FULL
+        // namespaced name so the namespace is stripped exactly once (inside
+        // `tool_block_reason`), evaluating the policy against the identical
+        // string the listing path (`tools()`) filters on — even when the
+        // downstream tool name itself contains `__`.
+        if let Some(reason) = handle.tool_block_reason(namespaced_name) {
             return Err(PorterError::ToolNotPermitted(
                 slug.to_string(),
                 original_name.to_string(),
@@ -392,6 +396,43 @@ mod tests {
         assert!(
             matches!(&result, Err(PorterError::ToolNotPermitted(slug, tool, reason)) if slug == "gh" && tool == "delete_issue" && reason == "deny list"),
             "Expected ToolNotPermitted(deny list) error, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_denied_tool_with_namespace_in_downstream_name_hidden_and_rejected() {
+        // Regression: a downstream tool whose REAL name contains the `__`
+        // namespace separator (stored namespaced as `gh__admin__delete`) must be
+        // treated identically by the listing and call paths. An anchored deny on
+        // the true downstream name (`admin__delete`) must both hide it AND reject
+        // the call — otherwise the tool is hidden-but-callable (double-strip bug).
+        let filter = ToolFilter::new(None, vec!["admin__delete".to_string()]);
+        let (handle, _health_tx) = mock_server_handle_with(
+            "gh",
+            HealthState::Healthy,
+            vec![
+                namespaced_tool("gh__get_issue"),
+                namespaced_tool("gh__admin__delete"),
+            ],
+            filter,
+        );
+        let mut servers = HashMap::new();
+        servers.insert("gh".to_string(), handle);
+        let registry = PorterRegistry {
+            servers,
+            cancel: CancellationToken::new(),
+        };
+
+        // Listing hides the denied tool.
+        let tools = registry.tools().await;
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(names, vec!["gh__get_issue"]);
+
+        // call_tool must AGREE with the listing and reject the denied tool.
+        let result = registry.call_tool("gh__admin__delete", None).await;
+        assert!(
+            matches!(&result, Err(PorterError::ToolNotPermitted(slug, tool, reason)) if slug == "gh" && tool == "admin__delete" && reason == "deny list"),
+            "Expected ToolNotPermitted(deny list) — the double-strip bypass must be closed, got {result:?}"
         );
     }
 
