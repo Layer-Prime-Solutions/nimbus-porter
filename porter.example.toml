@@ -63,6 +63,10 @@ args = ["/home/user/projects"]
 #   *suffix    suffix match         (e.g. "*_issue")
 #   *inner*    substring match      (e.g. "*delete*")
 #
+# `*` is honored ONLY as a single leading and/or trailing character. A `*` in
+# any other position (e.g. "delete*confirm" or "**abc") is treated as a literal
+# and would silently match nothing, so Porter REJECTS such patterns at startup.
+#
 # A tool is permitted iff (allow is omitted OR it matches an allow entry) AND
 # it matches NO deny entry. Deny always wins over allow — a tool listed in both
 # is blocked (Porter logs a warning at startup). With no allow/deny configured,

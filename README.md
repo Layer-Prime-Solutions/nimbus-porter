@@ -126,6 +126,12 @@ an exact name or a simple glob:
 | `*suffix`  | suffix match       | `*_issue`            |
 | `*inner*`  | substring match    | `*delete*`           |
 
+The `*` wildcard is honored **only** as a single leading and/or trailing
+character (the four forms above). A `*` anywhere else — an interior star like
+`delete*confirm`, or a doubled `**abc` — would be treated as a literal and
+silently match nothing, so Porter **rejects such patterns at startup** rather
+than fail open.
+
 A tool is permitted **iff** (`allow` is omitted **or** it matches an `allow`
 entry) **and** it matches **no** `deny` entry. **Deny always wins over allow** —
 a tool listed in both is blocked (Porter logs a warning at startup). With no
